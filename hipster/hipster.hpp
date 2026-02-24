@@ -100,7 +100,10 @@ public:
     start.record(stream.get());
     func();
     stop.record(stream.get());
-    stop.synchronize();
+
+    while (!stop.ready()) {
+      stream.waitEvent(stop);
+    }
 
     float ms = 0.0f;
     hipError_t err = hipEventElapsedTime(&ms, start.get(), stop.get());
