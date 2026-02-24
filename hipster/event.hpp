@@ -44,8 +44,15 @@ public:
   }
 
   void destroy() {
+    hipError_t err = hipSuccess;
     if (valid_ && event_) {
-      hipEventDestroy(event_);
+      err = hipEventDestroy(event_);
+
+      if (err != hipSuccess) {
+        std::cerr << "hipEventDestroy failed: " << hipGetErrorString(err)
+                  << "\n";
+      }
+
       event_ = nullptr;
       valid_ = false;
     }
@@ -55,14 +62,27 @@ public:
   operator hipEvent_t() const { return event_; }
 
   void record(hipStream_t stream = 0) {
+    hipError_t err = hipSuccess;
+
     if (valid_ && event_) {
-      hipEventRecord(event_, stream);
+      err = hipEventRecord(event_, stream);
+    }
+
+    if (err != hipSuccess) {
+      std::cerr << "hipEventRecord failed: " << hipGetErrorString(err) << "\n";
     }
   }
 
   void synchronize() const {
+    hipError_t err = hipSuccess;
+
     if (valid_ && event_) {
-      hipEventSynchronize(event_);
+      err = hipEventSynchronize(event_);
+    }
+
+    if (err != hipSuccess) {
+      std::cerr << "hipEventSynchronize failed: " << hipGetErrorString(err)
+                << "\n";
     }
   }
 
@@ -92,10 +112,18 @@ public:
   }
 
   static float elapsedTime(const HipEvent &start, const HipEvent &end) {
+    hipError_t err = hipSuccess;
+
     float ms = 0.0f;
     if (start.valid_ && start.event_ && end.valid_ && end.event_) {
-      hipEventElapsedTime(&ms, start.event_, end.event_);
+      err = hipEventElapsedTime(&ms, start.event_, end.event_);
     }
+
+    if (err != hipSuccess) {
+      std::cerr << "hipEventElapsedTime failed: " << hipGetErrorString(err)
+                << "\n";
+    }
+
     return ms;
   }
 
