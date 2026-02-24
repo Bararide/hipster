@@ -168,17 +168,17 @@ private:
       optimal_grid_multiplier_ = 2;
     }
 
-    int min_grid_size;
+    // int min_grid_size;
 
-    hipError_t err = hipSuccess;
+    // hipError_t err = hipSuccess;
 
-    err = hipOccupancyMaxPotentialBlockSize(
-        &min_grid_size, &optimal_block_size_, (const void *)nullptr, 0, 0);
+    // err = hipOccupancyMaxPotentialBlockSize(
+    //     &min_grid_size, &optimal_block_size_, (const void *)nullptr, 0, 0);
 
-    if (err != hipSuccess) {
-      std::cerr << "hipOccupancyMaxPotentialBlockSize failed: "
-                << hipGetErrorString(err) << std::endl;
-    }
+    // if (err != hipSuccess) {
+    //   std::cerr << "hipOccupancyMaxPotentialBlockSize failed: "
+    //             << hipGetErrorString(err) << std::endl;
+    // }
   }
 
   int device_;
