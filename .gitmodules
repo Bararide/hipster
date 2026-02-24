@@ -1,0 +1,9 @@
+[submodule "3dparty/boost"]
+	path = 3dparty/boost
+	url = https://github.com/boostorg/boost.git
+[submodule "3dparty/cppcore"]
+	path = 3dparty/cppcore
+	url = https://github.com/Bararide/cppcore.git
+[submodule "3dparty/spdlog"]
+	path = 3dparty/spdlog
+	url = https://github.com/gabime/spdlog.git
