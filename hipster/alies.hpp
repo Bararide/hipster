@@ -1,16 +1,18 @@
 #ifndef HIPSTER_ALIES_HPP
 #define HIPSTER_ALIES_HPP
 
+#include <chrono>
 #include <hip/hip_ext.h>
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 #include <iostream>
-
 #include <rocblas/rocblas.h>
-
 #include <rocrand/rocrand.h>
+#include <thread>
 
 namespace hipster {
+
+namespace Clock = std::chrono;
 
 #define IS_RDNA3(props) (props.gcnArch == 1100 || props.gcnArch == 1103)
 #define IS_RDNA2(props) (props.gcnArch == 1030 || props.gcnArch == 1031)

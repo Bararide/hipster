@@ -2,6 +2,7 @@
 #define HIPSTER_HIPSTER_HPP
 
 #include "memory.hpp"
+#include "event.h"
 
 namespace hipster {
 
