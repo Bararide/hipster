@@ -34,10 +34,11 @@ public:
   void create(unsigned int flags = HipStreamNonBlocking, int priority = 0) {
     destroy();
 
-    hipError_t err;
+    hipError_t err = hipSuccess;
+
     if (priority != 0) {
       int priority_low, priority_high;
-      hipDeviceGetStreamPriorityRange(&priority_low, &priority_high);
+      err = hipDeviceGetStreamPriorityRange(&priority_low, &priority_high);
 
       int actual_priority = priority;
       if (priority < priority_high)
@@ -60,8 +61,15 @@ public:
   }
 
   void destroy() noexcept {
+    hipError_t err = hipSuccess;
+
     if (valid_ && stream_) {
-      hipStreamDestroy(stream_);
+      err = hipStreamDestroy(stream_);
+
+      if (err != hipSuccess) {
+        std::cerr << "Failed to destroy stream: " << err << std::endl;
+      }
+
       stream_ = nullptr;
       valid_ = false;
     }
@@ -71,8 +79,14 @@ public:
   operator hipStream_t() const noexcept { return stream_; }
 
   void synchronize() const {
+    hipError_t err = hipSuccess;
+
     if (valid_ && stream_) {
-      hipStreamSynchronize(stream_);
+      err = hipStreamSynchronize(stream_);
+
+      if (err != hipSuccess) {
+        throw std::runtime_error("Failed to synchronize stream");
+      }
     }
   }
 
@@ -84,34 +98,66 @@ public:
   }
 
   void waitEvent(hipEvent_t event, unsigned int flags = 0) {
+    hipError_t err = hipSuccess;
+
     if (valid_ && stream_ && event) {
-      hipStreamWaitEvent(stream_, event, flags);
+      err = hipStreamWaitEvent(stream_, event, flags);
+
+      if (err != hipSuccess) {
+        throw std::runtime_error("Failed to wait for event");
+      }
     }
   }
 
   void addCallback(hipStreamCallback_t callback, void *userData = nullptr) {
+    hipError_t err = hipSuccess;
+
     if (valid_ && stream_ && callback) {
-      hipStreamAddCallback(stream_, callback, userData, 0);
+      err = hipStreamAddCallback(stream_, callback, userData, 0);
+
+      if (err != hipSuccess) {
+        throw std::runtime_error("Failed to add callback to stream");
+      }
     }
   }
 
   static void getPriorityRange(int *least_priority, int *greatest_priority) {
-    hipDeviceGetStreamPriorityRange(least_priority, greatest_priority);
+    hipError_t err = hipSuccess;
+
+    err = hipDeviceGetStreamPriorityRange(least_priority, greatest_priority);
+
+    if (err != hipSuccess) {
+      throw std::runtime_error("Failed to get stream priority range");
+    }
   }
 
   unsigned int getFlags() const {
+    hipError_t err = hipSuccess;
     unsigned int flags = 0;
+
     if (valid_ && stream_) {
-      hipStreamGetFlags(stream_, &flags);
+      err = hipStreamGetFlags(stream_, &flags);
     }
+
+    if (err != hipSuccess) {
+        std::cerr << "Failed to get stream flags" << std::endl;
+    }
+
     return flags;
   }
 
   int getPriority() const {
+    hipError_t err = hipSuccess;
     int priority = 0;
+
     if (valid_ && stream_) {
-      hipStreamGetPriority(stream_, &priority);
+      err = hipStreamGetPriority(stream_, &priority);
     }
+
+    if (err != hipSuccess) {
+        std::cerr << "Failed to get stream priority" << std::endl;
+    }
+    
     return priority;
   }
 

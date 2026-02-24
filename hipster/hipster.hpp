@@ -1,8 +1,10 @@
 #ifndef HIPSTER_HIPSTER_HPP
 #define HIPSTER_HIPSTER_HPP
 
-#include "memory.hpp"
 #include "event.h"
+#include "graph.hpp"
+#include "memory.hpp"
+#include "stream.hpp"
 
 namespace hipster {
 

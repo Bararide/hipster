@@ -6,9 +6,11 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 #include <iostream>
+#include <memory>
 #include <rocblas/rocblas.h>
 #include <rocrand/rocrand.h>
 #include <thread>
+#include <vector>
 
 namespace hipster {
 
