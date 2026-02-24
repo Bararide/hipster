@@ -82,6 +82,7 @@ public:
     hipError_t err = hipSuccess;
 
     if (valid_ && stream_) {
+      
       err = hipStreamSynchronize(stream_);
 
       if (err != hipSuccess) {
@@ -157,7 +158,7 @@ public:
     if (err != hipSuccess) {
         std::cerr << "Failed to get stream priority" << std::endl;
     }
-    
+
     return priority;
   }
 
