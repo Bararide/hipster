@@ -94,14 +94,22 @@ public:
   }
 
   template <typename F> double measureGpuTime(F &&func, HipStream &stream) {
-    HipEvent start, stop;
+    HipEvent start(0);
+    HipEvent stop(0);
 
     start.record(stream.get());
     func();
     stop.record(stream.get());
     stop.synchronize();
 
-    return HipEvent::elapsedTime(start, stop) * 1000.0;
+    float ms = 0.0f;
+    hipError_t err = hipEventElapsedTime(&ms, start.get(), stop.get());
+    if (err != hipSuccess) {
+      throw std::runtime_error(std::string("hipEventElapsedTime failed: ") +
+                               hipGetErrorString(err));
+    }
+
+    return ms * 1000.0;
   }
 
   std::string getDeviceName() const { return props_.name; }

@@ -17,6 +17,12 @@ public:
     create(flags);
   }
 
+  static HipEvent createWithTiming() { return HipEvent(0); }
+
+  static HipEvent createWithoutTiming() {
+    return HipEvent(hipEventDisableTiming);
+  }
+
   ~HipEvent() { destroy(); }
 
   HipEvent(const HipEvent &) = delete;

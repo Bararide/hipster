@@ -67,7 +67,8 @@ public:
       if (!ptr_ || !host_data) {
         return 1;
       }
-      hipError_t err = hipMemcpy(ptr_, host_data, size, hipMemcpyHostToDevice);
+      hipError_t err =
+          hipMemcpyAsync(ptr_, host_data, size, hipMemcpyHostToDevice);
       return (err == hipSuccess) ? 0 : 1;
     } else {
       std::cerr << "copyToDevice only for Device memory" << std::endl;
@@ -80,7 +81,8 @@ public:
       if (!ptr_ || !host_data) {
         return 1;
       }
-      hipError_t err = hipMemcpy(host_data, ptr_, size, hipMemcpyDeviceToHost);
+      hipError_t err =
+          hipMemcpyAsync(host_data, ptr_, size, hipMemcpyDeviceToHost);
       return (err == hipSuccess) ? 0 : 1;
     } else {
       std::cerr << "copyToHost only for Device memory" << std::endl;
