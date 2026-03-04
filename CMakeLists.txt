@@ -14,7 +14,6 @@ find_package(rocrand REQUIRED)
 find_package(rocsparse REQUIRED)
 find_package(rocsolver REQUIRED)
 find_package(rocfft REQUIRED)
-find_package(miopen REQUIRED)
 find_package(hipblas REQUIRED)
 find_package(hipsparse REQUIRED)
 find_package(hipfft REQUIRED)
@@ -60,7 +59,6 @@ target_link_libraries(hipster INTERFACE
     roc::rocsparse
     roc::rocsolver
     roc::rocfft
-    MIOPEN::MIOPEN
     ${ROCPROFILER_LIBRARIES}
     ${ROCTRACER_LIBRARIES}
 )
