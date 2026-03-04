@@ -28,7 +28,8 @@ find_package(fmt REQUIRED)
 set(SPDLOG_FMT_EXTERNAL ON)
 
 target_include_directories(hipster INTERFACE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/hipster
     ${CMAKE_CURRENT_SOURCE_DIR}/3dparty/boost
     ${CMAKE_SOURCE_DIR}/3dparty/cppcore
     ${CMAKE_SOURCE_DIR}/3dparty/cppcore/infrastructure
