@@ -3,7 +3,7 @@
 
 #include "event.hpp"
 #include "graph.hpp"
-#include "memory.hpp"
+#include "memory/memory.hpp"
 #include "stream.hpp"
 
 namespace hipster {
