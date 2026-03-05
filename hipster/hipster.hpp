@@ -3,8 +3,9 @@
 
 #include "event.hpp"
 #include "graph.hpp"
-#include "memory/memory.hpp"
+#include "memory.hpp"
 #include "stream.hpp"
+#include "dataframe.hpp"
 
 namespace hipster {
 
