@@ -1,11 +1,11 @@
 #ifndef HIPSTER_HIPSTER_HPP
 #define HIPSTER_HIPSTER_HPP
 
+#include "dataframe.hpp"
 #include "event.hpp"
 #include "graph.hpp"
 #include "memory.hpp"
 #include "stream.hpp"
-#include "dataframe.hpp"
 #include "utils.hpp"
 
 namespace hipster {
@@ -136,8 +136,9 @@ public:
   }
 
   dim3 getOptimalGridDim(int n, int block_size = 0) const {
-    if (block_size == 0)
+    if (block_size == 0) {
       block_size = optimal_block_size_;
+    }
     return dim3((n + block_size - 1) / block_size);
   }
 
