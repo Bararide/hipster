@@ -6,6 +6,7 @@
 #include "memory.hpp"
 #include "stream.hpp"
 #include "dataframe.hpp"
+#include "utils.hpp"
 
 namespace hipster {
 
