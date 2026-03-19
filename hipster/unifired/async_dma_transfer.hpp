@@ -6,18 +6,115 @@
 
 namespace hipster {
 
+namespace cpu_features {
+
+[[nodiscard]] inline bool has_clwb() noexcept {
+  unsigned eax, ebx, ecx, edx;
+  __cpuid_count(7, 0, eax, ebx, ecx, edx);
+  return (ebx >> 24) & 1u;
+}
+
+[[nodiscard]] inline bool has_clflushopt() noexcept {
+  unsigned eax, ebx, ecx, edx;
+  __cpuid_count(7, 0, eax, ebx, ecx, edx);
+  return (ebx >> 23) & 1u;
+}
+
+[[nodiscard]] inline bool has_avx512f() noexcept {
+  unsigned eax, ebx, ecx, edx;
+  __cpuid_count(7, 0, eax, ebx, ecx, edx);
+  return (ebx >> 16) & 1u;
+}
+
+struct Caps {
+  bool clwb;
+  bool clflushopt;
+  bool avx512f;
+  static const Caps &get() noexcept {
+    static const Caps c{has_clwb(), has_clflushopt(), has_avx512f()};
+    return c;
+  }
+};
+
+} // namespace cpu_features
+
+struct FlushPolicyClwb {};
+struct FlushPolicyClflushopt {};
+struct FlushPolicyNone {};
+struct FlushPolicyAuto {};
+
+template <typename Policy> struct CacheFlush;
+
+template <> struct CacheFlush<FlushPolicyClwb> {
+  __attribute__((target("clwb"))) static void flush(char *p,
+                                                    size_t len) noexcept {
+    for (size_t i = 0; i < len; i += 64) {
+      _mm_clwb(p + i);
+    }
+    _mm_sfence();
+  }
+};
+
+template <> struct CacheFlush<FlushPolicyClflushopt> {
+  __attribute__((target("clflushopt"))) static void flush(char *p,
+                                                          size_t len) noexcept {
+    for (size_t i = 0; i < len; i += 64) {
+      _mm_clflushopt(p + i);
+    }
+    _mm_sfence();
+  }
+};
+
+template <> struct CacheFlush<FlushPolicyNone> {
+  static void flush(char *, size_t) noexcept { _mm_sfence(); }
+};
+
+template <> struct CacheFlush<FlushPolicyAuto> {
+  __attribute__((target("clwb,clflushopt"))) static void
+  flush(char *p, size_t len) noexcept {
+    const auto &caps = cpu_features::Caps::get();
+    if (caps.clwb) {
+      for (size_t i = 0; i < len; i += 64) {
+        _mm_clwb(p + i);
+      }
+    } else if (caps.clflushopt) {
+      for (size_t i = 0; i < len; i += 64) {
+        _mm_clflushopt(p + i);
+      }
+    }
+    _mm_sfence();
+  }
+};
+
+inline void prefetch_write(const char *p, size_t len) noexcept {
+  static const bool is_amd = [] {
+    unsigned int eax, ebx, ecx, edx;
+    __cpuid(0, eax, ebx, ecx, edx);
+    return ebx == 0x68747541 && ecx == 0x444d4163 && edx == 0x69746e65;
+  }();
+
+  for (size_t i = 0; i < len; i += 64) {
+    if (is_amd) {
+      asm volatile("prefetchw (%0)" : : "r"(p + i) : "memory");
+    } else {
+      __builtin_prefetch(p + i, 1, 1);
+    }
+  }
+}
+
 struct AsyncOp {
   uint64_t id;
   std::function<void(int)> callback;
 };
 
-class AsyncDmaTransfer {
+template <typename FlushPolicy = FlushPolicyAuto> class AsyncDmaTransfer {
 public:
-  static constexpr size_t RING_ENTRIES = 256;
+  static constexpr size_t kRingEntries = 256;
+  static constexpr size_t kBatchSize = 32;
 
   explicit AsyncDmaTransfer(const GpuAgent &gpu_agent, GpuPool &gpu_pool)
       : gpu_agent_(gpu_agent), gpu_pool_(gpu_pool),
-        uring_(eio::SQEntries{RING_ENTRIES}, eio::Flags{0}) {
+        uring_(eio::SQEntries{kRingEntries}, eio::Flags{0}) {
     completion_thread_ = std::jthread([this] { completion_loop(); });
   }
 
@@ -33,7 +130,6 @@ public:
   bool prepare(size_t size) {
     if (!buf_.create(size, gpu_agent_))
       return false;
-
     iov_.iov_base = buf_.cpu();
     iov_.iov_len = buf_.size();
     buffer_registered_ =
@@ -46,24 +142,57 @@ public:
     uint64_t id = next_id_++;
     char *dst = static_cast<char *>(buf_.cpu()) + offset;
 
+    prefetch_write(dst, len);
     memcpy(dst, data, len);
-    flush_cache(dst, len);
-    _mm_sfence();
+    CacheFlush<FlushPolicy>::flush(dst, len);
 
     {
       std::lock_guard lock(ops_mutex_);
       ops_[id] = {id, std::move(cb)};
     }
 
-    if (buffer_registered_) {
-      eio::WriteFixed op(buf_.fd(), 0, len, offset, id, 0);
-      uring_.prep(op);
-    } else {
-      eio::Write op(buf_.fd(), data, len, offset, id);
-      uring_.prep(op);
-    }
-    (void)uring_.submit();
+    submit_op(id, len, offset);
     return id;
+  }
+
+  struct Chunk {
+    const void *data;
+    size_t offset;
+    size_t len;
+  };
+
+  std::vector<uint64_t> write_batch(std::span<const Chunk> chunks,
+                                    std::function<void(int)> cb = {}) {
+    std::vector<uint64_t> ids;
+    ids.reserve(chunks.size());
+
+    size_t pending = 0;
+    for (const auto &c : chunks) {
+      uint64_t id = next_id_++;
+      char *dst = static_cast<char *>(buf_.cpu()) + c.offset;
+
+      prefetch_write(dst, c.len);
+      memcpy(dst, c.data, c.len);
+      CacheFlush<FlushPolicy>::flush(dst, c.len);
+
+      {
+        std::lock_guard lock(ops_mutex_);
+        ops_[id] = {id, cb};
+      }
+
+      prep_op(id, c.len, c.offset);
+      ids.push_back(id);
+
+      if (++pending >= kBatchSize) {
+        (void)uring_.submit();
+        pending = 0;
+      }
+    }
+    if (pending > 0) {
+      (void)uring_.submit();
+    }
+
+    return ids;
   }
 
   void wait(uint64_t id) {
@@ -93,13 +222,14 @@ public:
       buf_.sync(DMA_BUF_SYNC_END);
       ok = true;
     }
-
     hsa_signal_destroy(sig);
     return ok;
   }
 
-  const DmaBuffer &buffer() const noexcept { return buf_; }
-  bool fixed_buffer() const noexcept { return buffer_registered_; }
+  [[nodiscard]] const DmaBuffer &buffer() const noexcept { return buf_; }
+  [[nodiscard]] bool fixed_buffer() const noexcept {
+    return buffer_registered_;
+  }
 
 private:
   const GpuAgent &gpu_agent_;
@@ -115,6 +245,22 @@ private:
   std::atomic<uint64_t> next_id_{1};
   std::atomic<bool> running_{true};
   std::jthread completion_thread_;
+
+  void prep_op(uint64_t id, size_t len, size_t offset) {
+    if (buffer_registered_) {
+      eio::WriteFixed op(buf_.fd(), 0, len, offset, id, 0);
+      uring_.prep(op);
+    } else {
+      eio::Write op(buf_.fd(), static_cast<char *>(buf_.cpu()) + offset, len,
+                    offset, id);
+      uring_.prep(op);
+    }
+  }
+
+  void submit_op(uint64_t id, size_t len, size_t offset) {
+    prep_op(id, len, offset);
+    (void)uring_.submit();
+  }
 
   void wakeup_completion_thread() {
     io_uring_sqe *sqe = io_uring_get_sqe(uring_.native_handle());
@@ -153,29 +299,10 @@ private:
     }
     ops_cv_.notify_all();
   }
-
-  __attribute__((target("clwb,clflushopt"))) static void
-  flush_cache(char *dst, size_t len) {
-    static const bool has_clwb = [] {
-      unsigned eax, ebx, ecx, edx;
-      __cpuid_count(7, 0, eax, ebx, ecx, edx);
-      return (ebx >> 24) & 1;
-    }();
-    static const bool has_clflushopt = [] {
-      unsigned eax, ebx, ecx, edx;
-      __cpuid_count(7, 0, eax, ebx, ecx, edx);
-      return (ebx >> 23) & 1;
-    }();
-
-    for (size_t i = 0; i < len; i += 64) {
-      if (has_clwb)
-        _mm_clwb(dst + i);
-      else if (has_clflushopt)
-        _mm_clflushopt(dst + i);
-    }
-  }
 };
+
+using AsyncDmaTransferAuto = AsyncDmaTransfer<FlushPolicyAuto>;
 
 } // namespace hipster
 
-#endif // HIPSTER_UNIFIRED_ASYNC_DMA_TRANSFER_HPP
+#endif

@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <uring.hpp>
+#include <random>
 #include <xmmintrin.h>
 
 namespace hipster {

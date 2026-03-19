@@ -8,16 +8,6 @@ add_compile_definitions(__HIP_PLATFORM_AMD__)
 
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
-find_package(rocprim REQUIRED)
-find_package(rocrand REQUIRED)
-find_package(rocsparse REQUIRED)
-find_package(rocsolver REQUIRED)
-find_package(rocfft REQUIRED)
-find_package(hipblas REQUIRED)
-find_package(hipsparse REQUIRED)
-find_package(hipfft REQUIRED)
-find_package(hiprand REQUIRED)
-find_package(hipsolver REQUIRED)
 
 find_package(spdlog REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -220,11 +210,6 @@ target_link_libraries(hipster INTERFACE
     fmt::fmt
     hip::host
     roc::rocblas
-    roc::rocprim
-    roc::rocrand
-    roc::rocsparse
-    roc::rocsolver
-    roc::rocfft
     ${JSONCPP_LIBRARIES}
     pthread
     dl
