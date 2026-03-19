@@ -3,16 +3,9 @@
 
 #include "memory.hpp"
 
-#include <algorithm>
-#include <cstddef>
-#include <initializer_list>
-#include <stdexcept>
-#include <string>
-#include <type_traits>
-#include <utility>
-#include <vector>
-
+#ifdef __HIP_PLATFORM_AMD__
 #include <hip/hip_runtime.h>
+#endif
 
 namespace hipster {
 

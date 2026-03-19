@@ -1,9 +1,11 @@
 #ifndef HIPSTER_UTILS_HPP
 #define HIPSTER_UTILS_HPP
 
+#ifdef __HIP_PLATFORM_AMD__
 #include <hip/hip_ext.h>
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
+#endif
 
 namespace hipster {
 

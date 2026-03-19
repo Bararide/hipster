@@ -7,6 +7,7 @@
 #include "memory.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
+#include "row.hpp"
 
 namespace hipster {
 

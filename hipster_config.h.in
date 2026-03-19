@@ -1,0 +1,8 @@
+#ifndef HIPSTER_CONFIG_H
+#define HIPSTER_CONFIG_H
+
+#cmakedefine HAVE_HSA
+#cmakedefine HAVE_DRM
+#cmakedefine HAVE_DMA_BUF
+
+#endif // HIPSTER_CONFIG_H

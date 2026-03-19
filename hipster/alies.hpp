@@ -1,16 +1,26 @@
 #ifndef HIPSTER_ALIES_HPP
 #define HIPSTER_ALIES_HPP
 
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <initializer_list>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#ifdef __HIP_PLATFORM_AMD__
 #include <hip/hip_ext.h>
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
-#include <iostream>
-#include <memory>
 #include <rocblas/rocblas.h>
 #include <rocrand/rocrand.h>
-#include <thread>
-#include <vector>
+#endif
 
 namespace hipster {
 
