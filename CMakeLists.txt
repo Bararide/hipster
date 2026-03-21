@@ -190,7 +190,6 @@ target_include_directories(hipster INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/3dparty/boost>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/3dparty/cppcore>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/3dparty/eio>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/3dparty/tiny>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/3dparty/spdlog/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/core>
     ${HIP_INCLUDE_DIRS}
@@ -205,7 +204,6 @@ target_compile_definitions(hipster INTERFACE
 target_link_libraries(hipster INTERFACE
     cppcore
     eio
-    tiny
     spdlog::spdlog
     fmt::fmt
     hip::host
