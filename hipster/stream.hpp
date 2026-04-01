@@ -61,13 +61,17 @@ public:
   }
 
   void destroy() noexcept {
-    hipError_t err = hipSuccess;
-
     if (valid_ && stream_) {
-      err = hipStreamDestroy(stream_);
+      hipError_t sync_err = hipStreamSynchronize(stream_);
+      if (sync_err != hipSuccess && sync_err != hipErrorInvalidResourceHandle) {
+        std::cerr << "Warning: Failed to synchronize stream before destroy: "
+                  << hipGetErrorString(sync_err) << std::endl;
+      }
 
-      if (err != hipSuccess) {
-        std::cerr << "Failed to destroy stream: " << err << std::endl;
+      hipError_t err = hipStreamDestroy(stream_);
+      if (err != hipSuccess && err != hipErrorInvalidResourceHandle) {
+        std::cerr << "Failed to destroy stream: " << err << " ("
+                  << hipGetErrorString(err) << ")" << std::endl;
       }
 
       stream_ = nullptr;
@@ -82,7 +86,7 @@ public:
     hipError_t err = hipSuccess;
 
     if (valid_ && stream_) {
-      
+
       err = hipStreamSynchronize(stream_);
 
       if (err != hipSuccess) {
@@ -141,7 +145,7 @@ public:
     }
 
     if (err != hipSuccess) {
-        std::cerr << "Failed to get stream flags" << std::endl;
+      std::cerr << "Failed to get stream flags" << std::endl;
     }
 
     return flags;
@@ -156,7 +160,7 @@ public:
     }
 
     if (err != hipSuccess) {
-        std::cerr << "Failed to get stream priority" << std::endl;
+      std::cerr << "Failed to get stream priority" << std::endl;
     }
 
     return priority;
