@@ -12,7 +12,7 @@ public:
 
   explicit GpuPool(const GpuAgent &agent) : Base(agent.agent()) {
     if (!runtimeAllocAllowed()) {
-      std::cout << "⚠ GPU pool: runtime allocation not allowed" << std::endl;
+      std::cout << "GPU pool: runtime allocation not allowed" << std::endl;
     }
   }
 
