@@ -25,6 +25,7 @@ struct Caps {
   bool clwb;
   bool clflushopt;
   bool avx512f;
+  
   static const Caps &get() noexcept {
     static const Caps c{has_clwb(), has_clflushopt(), has_avx512f()};
     return c;

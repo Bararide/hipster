@@ -4,12 +4,29 @@
 #include "cache.hpp"
 #include "dma_buffer.hpp"
 #include "pool_gpu.hpp"
+#include "signal.hpp"
+#include "utils.hpp"
 
 namespace hipster {
 
 struct AsyncOp {
   uint64_t id;
   std::function<void(int)> callback;
+};
+
+template <typename T> class DmaAllocator {
+public:
+  using value_type = T;
+  DmaAllocator(DmaBuffer &buf) : buffer_(&buf) {}
+
+  T *allocate(std::size_t n) {
+    return static_cast<T *>(buffer_->cpu()) + current_offset_;
+  }
+  void deallocate(T *, std::size_t) noexcept {}
+
+private:
+  DmaBuffer *buffer_;
+  size_t current_offset_ = 0;
 };
 
 template <typename FlushPolicy = FlushPolicyAuto> class AsyncDmaTransfer {
@@ -57,7 +74,7 @@ public:
     return ids;
   }
 
-  void flush_dirty_range() {
+  void flushDirtyRange() {
     if (dirty_min_ < dirty_max_) {
       size_t len = dirty_max_ - dirty_min_;
       char *start = static_cast<char *>(buf_.cpu()) + dirty_min_;
@@ -68,27 +85,27 @@ public:
       dirty_max_ = 0;
     }
   }
-
-  bool copy_to_gpu(void *gpu_dest, size_t size) {
-    flush_dirty_range();
+  bool copyToGpu(void *gpu_dest, size_t size) {
+    flushDirtyRange();
 
     buf_.sync(DMA_BUF_SYNC_READ | DMA_BUF_SYNC_START);
 
-    hsa_signal_t sig;
-    hsa_signal_create(1, 0, nullptr, &sig);
+    HsaSignal sig(1, 0);
 
     hsa_agent_t agent = gpu_agent_.agent();
+
     hsa_status_t status = hsa_amd_memory_async_copy(
-        gpu_dest, agent, buf_.gpu(), agent, size, 0, nullptr, sig);
+        gpu_dest, agent, buf_.gpu(), agent, size, 0, nullptr, sig.get());
 
     bool ok = false;
     if (status == HSA_STATUS_SUCCESS) {
-      hsa_signal_wait_acquire(sig, HSA_SIGNAL_CONDITION_EQ, 0, UINT64_MAX,
+      hsa_signal_wait_acquire(sig.get(), HSA_SIGNAL_CONDITION_EQ, 0, UINT64_MAX,
                               HSA_WAIT_STATE_BLOCKED);
+
       buf_.sync(DMA_BUF_SYNC_END);
       ok = true;
     }
-    hsa_signal_destroy(sig);
+
     return ok;
   }
 
