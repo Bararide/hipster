@@ -6,8 +6,6 @@
 
 namespace hipster {
 
-namespace cpu_features {
-
 [[nodiscard]] inline bool has_clwb() noexcept {
   unsigned eax, ebx, ecx, edx;
   __cpuid_count(7, 0, eax, ebx, ecx, edx);
@@ -35,8 +33,6 @@ struct Caps {
     return c;
   }
 };
-
-} // namespace cpu_features
 
 struct FlushPolicyClwb {};
 struct FlushPolicyClflushopt {};
@@ -72,7 +68,7 @@ template <> struct CacheFlush<FlushPolicyNone> {
 template <> struct CacheFlush<FlushPolicyAuto> {
   __attribute__((target("clwb,clflushopt"))) static void
   flush(char *p, size_t len) noexcept {
-    const auto &caps = cpu_features::Caps::get();
+    const auto &caps = Caps::get();
     if (caps.clwb) {
       for (size_t i = 0; i < len; i += 64) {
         _mm_clwb(p + i);

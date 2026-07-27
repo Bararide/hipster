@@ -7,3 +7,6 @@
 [submodule "3dparty/spdlog"]
 	path = 3dparty/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "3dparty/eio"]
+	path = 3dparty/eio
+	url = https://github.com/Bararide/eio.git
