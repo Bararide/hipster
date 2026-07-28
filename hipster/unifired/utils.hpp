@@ -36,6 +36,13 @@ inline void validateZeroCopyPointer(const void *cpu_ptr, const void *gpu_ptr,
   }
 }
 
+static inline void checkStatus(hsa_status_t status, const std::string &msg) {
+  if (status != HSA_STATUS_SUCCESS) {
+    throw std::runtime_error(msg + " (HSA Status: " + std::to_string(status) +
+                             ")");
+  }
+}
+
 } // namespace hipster
 
 #endif // HIPSTER_UNIFIRED_UTILS_HPP

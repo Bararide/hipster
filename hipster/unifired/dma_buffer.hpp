@@ -2,6 +2,7 @@
 #define HIPSTER_UNIFIRED_DMA_BUFFER_HPP
 
 #include "agent_gpu.hpp"
+#include "mmap.hpp"
 
 namespace hipster {
 
@@ -11,6 +12,7 @@ public:
   static constexpr size_t kHugePage = 2 * 1024 * 1024;
 
   DmaBuffer() = default;
+
   DmaBuffer(const DmaBuffer &) = delete;
   DmaBuffer &operator=(const DmaBuffer &) = delete;
 
@@ -22,12 +24,35 @@ public:
     o.size_ = 0;
   }
 
+  DmaBuffer &operator=(DmaBuffer &&o) noexcept {
+    if (this != &o) {
+      release();
+      fd_ = o.fd_;
+      cpu_ptr_ = o.cpu_ptr_;
+      gpu_ptr_ = o.gpu_ptr_;
+      size_ = o.size_;
+
+      o.fd_ = -1;
+      o.cpu_ptr_ = nullptr;
+      o.gpu_ptr_ = nullptr;
+      o.size_ = 0;
+    }
+    return *this;
+  }
+
   ~DmaBuffer() { release(); }
 
-  bool create(size_t size, const GpuAgent &gpu_agent) {
+  template <IsMmapOption... Options>
+  bool create(size_t size, const GpuAgent &gpu_agent, const char *name,
+              Options &&...opts) {
     size_ = align(size, kAlignment);
 
-    fd_ = memfd_create("dma-buffer", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    MmapConfig cfg;
+    DefaultDmaConfig{}.apply(cfg);
+
+    (opts.apply(cfg), ...);
+
+    fd_ = memfd_create(name, cfg.memfd_flags);
     if (fd_ < 0 || ftruncate(fd_, size_) < 0) {
       if (fd_ >= 0) {
         close(fd_);
@@ -36,15 +61,13 @@ public:
       return false;
     }
 
-    int flags = MAP_SHARED | MAP_POPULATE;
-    if (size_ >= kHugePage)
-      flags |= MAP_HUGETLB;
+    cpu_ptr_ = mmap(nullptr, size_, cfg.prot, cfg.map_flags, fd_, 0);
 
-    cpu_ptr_ = mmap(nullptr, size_, PROT_READ | PROT_WRITE, flags, fd_, 0);
-    if (cpu_ptr_ == MAP_FAILED && (flags & MAP_HUGETLB)) {
-      flags &= ~MAP_HUGETLB;
-      cpu_ptr_ = mmap(nullptr, size_, PROT_READ | PROT_WRITE, flags, fd_, 0);
+    if (cpu_ptr_ == MAP_FAILED && (cfg.map_flags & MAP_HUGETLB)) {
+      cfg.map_flags &= ~MAP_HUGETLB;
+      cpu_ptr_ = mmap(nullptr, size_, cfg.prot, cfg.map_flags, fd_, 0);
     }
+
     if (cpu_ptr_ == MAP_FAILED) {
       close(fd_);
       fd_ = -1;
@@ -52,8 +75,9 @@ public:
       return false;
     }
 
-    madvise(cpu_ptr_, size_, MADV_SEQUENTIAL);
-    madvise(cpu_ptr_, size_, MADV_DONTFORK);
+    if (cfg.madvise != 0) {
+      madvise(cpu_ptr_, size_, cfg.madvise);
+    }
 
     hsa_agent_t agent = gpu_agent.agent();
     hsa_status_t st =
@@ -69,13 +93,20 @@ public:
     return true;
   }
 
-  void sync(int flags) const noexcept {
-    if (fd_ < 0)
-      return;
+  [[nodiscard]] bool sync(int flags) const noexcept {
+    if (fd_ < 0) {
+      return false;
+    }
+
     struct dma_buf_sync s {
       .flags = static_cast<__u64>(flags)
     };
-    ioctl(fd_, DMA_BUF_IOCTL_SYNC, &s);
+
+    int result = ioctl(fd_, DMA_BUF_IOCTL_SYNC, &s);
+    if (result < 0) {
+      return false;
+    }
+    return true;
   }
 
   [[nodiscard]] int fd() const noexcept { return fd_; }
@@ -99,10 +130,12 @@ private:
       hsa_amd_memory_unlock(cpu_ptr_);
       gpu_ptr_ = nullptr;
     }
+
     if (cpu_ptr_ && cpu_ptr_ != MAP_FAILED) {
       munmap(cpu_ptr_, size_);
       cpu_ptr_ = nullptr;
     }
+
     if (fd_ >= 0) {
       close(fd_);
       fd_ = -1;
@@ -112,4 +145,4 @@ private:
 
 } // namespace hipster
 
-#endif
+#endif // HIPSTER_UNIFIRED_DMA_BUFFER_HPP

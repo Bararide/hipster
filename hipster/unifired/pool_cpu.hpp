@@ -6,9 +6,11 @@
 
 namespace hipster {
 
-class CpuPool final : public PoolBase<CpuPool, PoolType::GLOBAL> {
+class CpuPool final : public PoolBase<CpuPool, PoolType::GLOBAL,
+                                      GlobalMemoryProperty::COARSE_GRAINED> {
 public:
-  using Base = PoolBase<CpuPool, PoolType::GLOBAL>;
+  using Base =
+      PoolBase<CpuPool, PoolType::GLOBAL, GlobalMemoryProperty::COARSE_GRAINED>;
 
   explicit CpuPool(const CpuAgent &agent) : Base(agent.agent()) {}
 

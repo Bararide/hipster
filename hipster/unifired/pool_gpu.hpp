@@ -6,9 +6,10 @@
 
 namespace hipster {
 
-class GpuPool final : public PoolBase<GpuPool, PoolType::GLOBAL> {
+class GpuPool final : public PoolBase<GpuPool, PoolType::GLOBAL,
+                                      GlobalMemoryProperty::COARSE_GRAINED> {
 public:
-  using Base = PoolBase<GpuPool, PoolType::GLOBAL>;
+  using Base = PoolBase<GpuPool, PoolType::GLOBAL, GlobalMemoryProperty::COARSE_GRAINED>;
 
   explicit GpuPool(const GpuAgent &agent) : Base(agent.agent()) {
     if (!runtimeAllocAllowed()) {

@@ -61,7 +61,12 @@ private:
 template <typename T, MemoryType MemType = MemoryType::Managed>
 Row<void, MemType, T> make_row(const std::vector<T> &data) {
   Row<void, MemType, T> row(data.size());
-  std::copy(data.begin(), data.end(), row.begin());
+  if constexpr (MemType == MemoryType::Device) {
+    hipMemcpy(row.data(), data.data(), data.size() * sizeof(T),
+              hipMemcpyHostToDevice);
+  } else {
+    std::copy(data.begin(), data.end(), row.begin());
+  }
   return row;
 }
 

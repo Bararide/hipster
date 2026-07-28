@@ -32,13 +32,17 @@ private:
 template <typename FlushPolicy = FlushPolicyAuto> class AsyncDmaTransfer {
 public:
   explicit AsyncDmaTransfer(const GpuAgent &gpu_agent, GpuPool &gpu_pool)
-      : gpu_agent_(gpu_agent), gpu_pool_(gpu_pool) {}
+      : gpu_agent_(gpu_agent), gpu_pool_(gpu_pool) {
+    hsa_amd_profiling_async_copy_enable(true);
+  }
 
   ~AsyncDmaTransfer() = default;
 
-  bool prepare(size_t size) { return buf_.create(size, gpu_agent_); }
+  bool prepare(size_t size, const char *name) {
+    return buf_.create(size, gpu_agent_, name);
+  }
 
-  uint64_t write_async(const void *data, size_t offset, size_t len) {
+  uint64_t writeAsync(const void *data, size_t offset, size_t len) {
     char *dst = static_cast<char *>(buf_.cpu()) + offset;
     std::memcpy(dst, data, len);
 
@@ -69,7 +73,7 @@ public:
     ids.reserve(chunks.size());
 
     for (const auto &c : chunks) {
-      ids.push_back(write_async(c.data, c.offset, c.len));
+      ids.push_back(writeAsync(c.data, c.offset, c.len));
     }
     return ids;
   }
@@ -88,7 +92,9 @@ public:
   bool copyToGpu(void *gpu_dest, size_t size) {
     flushDirtyRange();
 
-    buf_.sync(DMA_BUF_SYNC_READ | DMA_BUF_SYNC_START);
+    // if (buf_.sync(DMA_BUF_SYNC_READ | DMA_BUF_SYNC_START)) {
+    //   return false;
+    // }
 
     HsaSignal sig(1, 0);
 
@@ -97,14 +103,25 @@ public:
     hsa_status_t status = hsa_amd_memory_async_copy(
         gpu_dest, agent, buf_.gpu(), agent, size, 0, nullptr, sig.get());
 
+    hsa_amd_profiling_async_copy_time_t copy_time;
+    hsa_amd_profiling_get_async_copy_time(sig.get(), &copy_time);
+
     bool ok = false;
     if (status == HSA_STATUS_SUCCESS) {
       hsa_signal_wait_acquire(sig.get(), HSA_SIGNAL_CONDITION_EQ, 0, UINT64_MAX,
                               HSA_WAIT_STATE_BLOCKED);
 
-      buf_.sync(DMA_BUF_SYNC_END);
+      // if (buf_.sync(DMA_BUF_SYNC_END)) {
+      //   return false;
+      // }
+
       ok = true;
     }
+
+    uint64_t system_tick_start, system_tick_end;
+    double duration_ns = (copy_time.end - copy_time.start);
+
+    std::cout << "Real copy time on SDMA: " << duration_ns / 1000.0 << " mcs\n";
 
     return ok;
   }
