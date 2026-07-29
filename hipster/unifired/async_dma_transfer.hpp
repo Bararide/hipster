@@ -42,7 +42,7 @@ public:
     return buf_.create(size, gpu_agent_, name);
   }
 
-  uint64_t writeAsync(const void *data, size_t offset, size_t len) {
+  void writeAsync(const void *data, size_t offset, size_t len) {
     char *dst = static_cast<char *>(buf_.cpu()) + offset;
     std::memcpy(dst, data, len);
 
@@ -58,8 +58,6 @@ public:
            !dirty_max_.compare_exchange_weak(current_max, new_max,
                                              std::memory_order_relaxed)) {
     }
-
-    return next_id_++;
   }
 
   struct Chunk {
@@ -68,7 +66,7 @@ public:
     size_t len;
   };
 
-  std::vector<uint64_t> write_batch(std::span<const Chunk> chunks) {
+  std::vector<uint64_t> writeBatch(std::span<const Chunk> chunks) {
     std::vector<uint64_t> ids;
     ids.reserve(chunks.size());
 
@@ -89,19 +87,15 @@ public:
       dirty_max_ = 0;
     }
   }
+
   bool copyToGpu(void *gpu_dest, size_t size) {
     flushDirtyRange();
 
-    // if (buf_.sync(DMA_BUF_SYNC_READ | DMA_BUF_SYNC_START)) {
-    //   return false;
-    // }
-
     HsaSignal sig(1, 0);
 
-    hsa_agent_t agent = gpu_agent_.agent();
-
     hsa_status_t status = hsa_amd_memory_async_copy(
-        gpu_dest, agent, buf_.gpu(), agent, size, 0, nullptr, sig.get());
+        gpu_dest, gpu_agent_.agent(), buf_.gpu(), gpu_agent_.agent(), size, 0,
+        nullptr, sig.get());
 
     hsa_amd_profiling_async_copy_time_t copy_time;
     hsa_amd_profiling_get_async_copy_time(sig.get(), &copy_time);
@@ -110,10 +104,6 @@ public:
     if (status == HSA_STATUS_SUCCESS) {
       hsa_signal_wait_acquire(sig.get(), HSA_SIGNAL_CONDITION_EQ, 0, UINT64_MAX,
                               HSA_WAIT_STATE_BLOCKED);
-
-      // if (buf_.sync(DMA_BUF_SYNC_END)) {
-      //   return false;
-      // }
 
       ok = true;
     }
@@ -126,7 +116,7 @@ public:
     return ok;
   }
 
-  [[nodiscard]] const DmaBuffer &buffer() const noexcept { return buf_; }
+  [[nodiscard]] DmaBuffer &buffer() noexcept { return buf_; }
 
 private:
   const GpuAgent &gpu_agent_;
@@ -135,8 +125,6 @@ private:
 
   std::atomic<size_t> dirty_min_{std::numeric_limits<size_t>::max()};
   std::atomic<size_t> dirty_max_{0};
-
-  std::atomic<uint64_t> next_id_{1};
 };
 
 using AsyncDmaTransferAuto = AsyncDmaTransfer<FlushPolicyAuto>;

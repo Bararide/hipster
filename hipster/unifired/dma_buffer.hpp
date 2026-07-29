@@ -58,6 +58,7 @@ public:
         close(fd_);
         fd_ = -1;
       }
+
       return false;
     }
 
@@ -82,6 +83,7 @@ public:
     hsa_agent_t agent = gpu_agent.agent();
     hsa_status_t st =
         hsa_amd_memory_lock(cpu_ptr_, size_, &agent, 1, &gpu_ptr_);
+
     if (st != HSA_STATUS_SUCCESS) {
       munmap(cpu_ptr_, size_);
       close(fd_);
@@ -106,6 +108,40 @@ public:
     if (result < 0) {
       return false;
     }
+    return true;
+  }
+
+  template <typename T>
+  bool write(size_t offset_bytes, const T *data, size_t count) noexcept {
+    if (!cpu_ptr_ || !data || count == 0) {
+      return false;
+    }
+
+    size_t bytes_to_write = count * sizeof(T);
+    if (offset_bytes + bytes_to_write > size_) {
+      return false;
+    }
+
+    char *dst = static_cast<char *>(cpu_ptr_) + offset_bytes;
+    std::memcpy(dst, data, bytes_to_write);
+
+    return true;
+  }
+
+  template <typename T>
+  bool read(size_t offset_bytes, T *data, size_t count) const noexcept {
+    if (!cpu_ptr_ || !data || count == 0) {
+      return false;
+    }
+
+    size_t bytes_to_read = count * sizeof(T);
+    if (offset_bytes + bytes_to_read > size_) {
+      return false;
+    }
+
+    const char *src = static_cast<const char *>(cpu_ptr_) + offset_bytes;
+    std::memcpy(data, src, bytes_to_read);
+
     return true;
   }
 

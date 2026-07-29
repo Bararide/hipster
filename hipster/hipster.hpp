@@ -1,13 +1,16 @@
 #ifndef HIPSTER_HIPSTER_HPP
 #define HIPSTER_HIPSTER_HPP
 
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime_api.h>
+
 #include "dataframe.hpp"
 #include "event.hpp"
 #include "graph.hpp"
 #include "memory.hpp"
+#include "row.hpp"
 #include "stream.hpp"
 #include "utils.hpp"
-#include "row.hpp"
 
 namespace hipster {
 
@@ -41,8 +44,8 @@ public:
   Hipster(const Hipster &) = delete;
   Hipster &operator=(const Hipster &) = delete;
 
-  Hipster(Hipster &&other) noexcept = default;
-  Hipster &operator=(Hipster &&other) noexcept = default;
+  Hipster(Hipster &&other) noexcept = delete;
+  Hipster &operator=(Hipster &&other) noexcept = delete;
 
   template <typename T>
   Memory<MemoryType::Managed> allocateManaged(size_t elements) {
@@ -156,8 +159,13 @@ public:
   void launchKernel(Kernel kernel, const LaunchConfig &config,
                     HipStream &stream, Args... args) {
     void *kernel_args[] = {(void *)&args...};
-    hipLaunchKernelGGL(kernel, config.grid_dim, config.block_dim,
-                       config.shared_memory_bytes, stream.get(), args...);
+
+    hipError_t err =
+        hipLaunchKernel(reinterpret_cast<const void *>(kernel), config.grid_dim,
+                        config.block_dim, kernel_args,
+                        config.shared_memory_bytes, stream.get());
+
+    checkHipError(err, "hipLaunchKernel");
   }
 
 private:
