@@ -17,11 +17,31 @@ add_custom_command(
 
 add_library(kernel_lib STATIC ${CMAKE_CURRENT_BINARY_DIR}/kernel.o)
 
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
+    COMMAND ${HIPCC_EXECUTABLE} --genco --offload-arch=gfx1103 -O3 
+            -o ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
+    COMMENT "Compiling HIP kernel to .hsaco"
+    VERBATIM
+)
+add_custom_target(graph_kernel_hsaco ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco)
+
 set_target_properties(kernel_lib PROPERTIES
     LINKER_LANGUAGE CXX
 )
 
 add_executable(${EXE_NAME} main.cpp)
+
+add_custom_command(TARGET ${EXE_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
+            $<TARGET_FILE_DIR:${EXE_NAME}>/graph_kernel.hsaco
+    COMMENT "Copying .hsaco file to executable directory"
+)
+
+add_dependencies(${EXE_NAME} graph_kernel_hsaco)
 
 target_link_libraries(${EXE_NAME} PRIVATE
     eio

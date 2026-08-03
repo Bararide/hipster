@@ -1,10 +1,16 @@
 #include <chrono>
+#include <fstream> // Для std::ifstream
 #include <iomanip>
+#include <iostream> // Для std::cerr
 #include <random>
 #include <vector>
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+
+#include <hip/hip_runtime.h>
+#include <hsa/hsa.h>
+#include <hsa/hsa_ext_amd.h>
 
 #include <hipster.hpp>
 #include <unifired/agent_cpu.hpp>
@@ -15,12 +21,50 @@
 #include <unifired/pool_cpu.hpp>
 #include <unifired/pool_gpu.hpp>
 
-__global__ void graph_weight_sum_kernel(const uint32_t *row_ptr,
-                                        const uint32_t *col_idx,
-                                        const float *weights, float *out_sums,
-                                        uint32_t num_vertices);
+extern "C" __global__ void graph_weight_sum_kernel(const uint32_t *row_ptr,
+                                                   const uint32_t *col_idx,
+                                                   const float *weights,
+                                                   float *out_sums,
+                                                   uint32_t num_vertices);
 
 using namespace hipster;
+
+class HipModuleKernel {
+public:
+  hipModule_t module = nullptr;
+  hipFunction_t function = nullptr;
+
+  bool load(const std::string &hsaco_path, const std::string &kernel_name) {
+    std::ifstream file(hsaco_path, std::ios::binary | std::ios::ate);
+    if (!file) {
+      std::cerr << "[Warning] Cannot open .hsaco file: " << hsaco_path << "\n";
+      return false;
+    }
+
+    size_t size = file.tellg();
+    file.seekg(0);
+    std::vector<char> hsaco_data(size);
+    file.read(hsaco_data.data(), size);
+
+    hipError_t err = hipModuleLoadData(&module, hsaco_data.data());
+    if (err != hipSuccess)
+      return false;
+
+    err = hipModuleGetFunction(&function, module, kernel_name.c_str());
+    return err == hipSuccess;
+  }
+
+  void launch(dim3 grid, dim3 block, size_t shared, hipStream_t stream,
+              void **args) {
+    (void)hipModuleLaunchKernel(function, grid.x, grid.y, grid.z, block.x, block.y,
+                          block.z, shared, stream, args, nullptr);
+  }
+
+  ~HipModuleKernel() {
+    if (module)
+      (void)hipModuleUnload(module);
+  }
+};
 
 int main() {
   auto logger = spdlog::stdout_color_mt("hipster_test");
@@ -44,7 +88,6 @@ int main() {
                  fine_grained_pool.isFineGrained() ? "yes" : "no");
 
     logger->info("\n=== 3. Graph Processing & Cache Optimization Test ===");
-
     Hipster hip;
     logger->info("[Hipster] Initialization: {}", hip.getDeviceName());
 
@@ -55,16 +98,15 @@ int main() {
     size_t col_idx_size = NUM_EDGES * sizeof(uint32_t);
     size_t weights_size = NUM_EDGES * sizeof(float);
     size_t out_sums_size = NUM_VERTICES * sizeof(float);
-
     size_t total_graph_size =
         row_ptr_size + col_idx_size + weights_size + out_sums_size;
 
     AsyncDmaTransferAuto transfer(gpu_agent, gpu_pool);
     if (!transfer.prepare(total_graph_size, "graph-csr-buffer")) {
-      logger->error("error AsyncDmaTransfer");
+      logger->error("Failed to prepare AsyncDmaTransfer");
       return 1;
     }
-    logger->info("Zero-Copy buffer: {} ({})", total_graph_size,
+    logger->info("Zero-Copy buffer: {} bytes ({} MB)", total_graph_size,
                  total_graph_size / (1024 * 1024));
 
     size_t offset_row_ptr = 0;
@@ -99,31 +141,54 @@ int main() {
     HipStream stream = hip.createStream();
     LaunchConfig config = hip.getOptimalLaunchConfig(NUM_VERTICES);
 
-    logger->info("graph_weight_sum_kernel (Grid: {}x{}x{}, Block: {}x{}x{})",
-                 config.grid_dim.x, config.grid_dim.y, config.grid_dim.z,
-                 config.block_dim.x, config.block_dim.y, config.block_dim.z);
+    // Указатели для передачи в ядро
+    const uint32_t *d_row_ptr =
+        static_cast<const uint32_t *>(transfer.buffer().cpu()) +
+        (offset_row_ptr / sizeof(uint32_t));
+    const uint32_t *d_col_idx =
+        static_cast<const uint32_t *>(transfer.buffer().cpu()) +
+        (offset_col_idx / sizeof(uint32_t));
+    const float *d_weights =
+        static_cast<const float *>(transfer.buffer().cpu()) +
+        (offset_weights / sizeof(float));
+    float *d_out_sums = static_cast<float *>(transfer.buffer().cpu()) +
+                        (offset_out_sums / sizeof(float));
 
-    auto start_time = std::chrono::high_resolution_clock::now();
+    logger->info("\n--- Launching Kernels ---");
 
-    hip.launchKernel(graph_weight_sum_kernel, config, stream,
-                     static_cast<uint32_t *>(transfer.buffer().cpu()) +
-                         (offset_row_ptr / sizeof(uint32_t)), // row_ptr
-                     static_cast<uint32_t *>(transfer.buffer().cpu()) +
-                         (offset_col_idx / sizeof(uint32_t)), // col_idx
-                     static_cast<float *>(transfer.buffer().cpu()) +
-                         (offset_weights / sizeof(float)), // weights
-                     static_cast<float *>(transfer.buffer().cpu()) +
-                         (offset_out_sums / sizeof(float)), // out_sums
-                     NUM_VERTICES);
+    {
+      auto start = std::chrono::high_resolution_clock::now();
+      hip.launchKernel(graph_weight_sum_kernel, config, stream, d_row_ptr,
+                       d_col_idx, d_weights, d_out_sums, NUM_VERTICES);
+      hip.synchronize(stream);
+      auto end = std::chrono::high_resolution_clock::now();
+      double ms =
+          std::chrono::duration<double, std::milli>(end - start).count();
+      logger->info("[Level 1] HIP Launch (Hipster): {:.4f} ms", ms);
+    }
 
-    hip.synchronize(stream);
-    auto end_time = std::chrono::high_resolution_clock::now();
+    {
+      HipModuleKernel mod_kernel;
+      if (mod_kernel.load("graph_kernel.hsaco", "graph_weight_sum_kernel")) {
+        void *args[] = {const_cast<uint32_t **>(&d_row_ptr),
+                        const_cast<uint32_t **>(&d_col_idx),
+                        const_cast<float **>(&d_weights), &d_out_sums,
+                        const_cast<uint32_t *>(&NUM_VERTICES)};
 
-    double duration_ms =
-        std::chrono::duration<double, std::milli>(end_time - start_time)
-            .count();
-    logger->info("kernel comleted {:.4f} ms", duration_ms);
+        auto start = std::chrono::high_resolution_clock::now();
+        mod_kernel.launch(config.grid_dim, config.block_dim, 0, stream.get(),
+                          args);
+        hip.synchronize(stream);
+        auto end = std::chrono::high_resolution_clock::now();
+        double ms =
+            std::chrono::duration<double, std::milli>(end - start).count();
+        logger->info("[Level 2] HIP Module API: {:.4f} ms", ms);
+      } else {
+        logger->warn("[Level 2] Skipped (graph_kernel.hsaco not found)");
+      }
+    }
 
+    logger->info("\n--- Validating Results ---");
     std::vector<float> h_out_sums(NUM_VERTICES, 0.0f);
     transfer.buffer().read(offset_out_sums, h_out_sums.data(),
                            h_out_sums.size());
@@ -134,18 +199,20 @@ int main() {
       float expected_sum = degree * 1.5f;
       if (std::abs(h_out_sums[v] - expected_sum) > 0.01f) {
         success = false;
-        logger->error("vertex {}: {:.2f}, {:.2f}", v, expected_sum,
-                      h_out_sums[v]);
+        logger->error(
+            "Validation failed at vertex {}: expected {:.2f}, got {:.2f}", v,
+            expected_sum, h_out_sums[v]);
         break;
       }
     }
 
     if (success) {
-      logger->info("success");
+      logger->info("SUCCESS: Graph processed correctly. Zero-Copy and "
+                   "kernel execution validated.");
     }
 
   } catch (const std::exception &e) {
-    logger->error("{}", e.what());
+    logger->error("Exception caught: {}", e.what());
     return 1;
   }
 

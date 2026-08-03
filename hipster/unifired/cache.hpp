@@ -80,7 +80,7 @@ template <> struct CacheFlush<FlushPolicyAuto> {
   }
 };
 
-inline void prefetch_write(const char *p, size_t len) noexcept {
+inline void prefetchWrite(const char *p, size_t len) noexcept {
   static const bool is_amd = [] {
     unsigned int eax, ebx, ecx, edx;
     __cpuid(0, eax, ebx, ecx, edx);

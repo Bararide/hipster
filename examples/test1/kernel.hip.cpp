@@ -1,21 +1,11 @@
+#include <cstdint>
 #include <hip/hip_runtime.h>
 
-__global__ void simple_multiply_kernel(int *data) {
-  if (threadIdx.x == 0 && blockIdx.x == 0) {
-    data[0] *= 2;
-  }
-}
-
-__global__ void simple_sum_kernel(int *data) {
-  if (threadIdx.x == 0 && blockIdx.x == 0) {
-    data[0] += data[0];
-  }
-}
-
-__global__ void graph_weight_sum_kernel(const uint32_t *row_ptr,
-                                        const uint32_t *col_idx,
-                                        const float *weights, float *out_sums,
-                                        uint32_t num_vertices) {
+extern "C" __global__ void graph_weight_sum_kernel(const uint32_t *row_ptr,
+                                                   const uint32_t *col_idx,
+                                                   const float *weights,
+                                                   float *out_sums,
+                                                   uint32_t num_vertices) {
   uint32_t v = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (v < num_vertices) {
