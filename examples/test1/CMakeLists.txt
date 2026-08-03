@@ -14,8 +14,8 @@ add_custom_command(
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
     COMMENT "Compiling HIP kernel with hipcc"
 )
-
 add_library(kernel_lib STATIC ${CMAKE_CURRENT_BINARY_DIR}/kernel.o)
+set_target_properties(kernel_lib PROPERTIES LINKER_LANGUAGE CXX)
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
@@ -28,26 +28,24 @@ add_custom_command(
 )
 add_custom_target(graph_kernel_hsaco ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco)
 
-set_target_properties(kernel_lib PROPERTIES
-    LINKER_LANGUAGE CXX
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel_embed.cpp
+    COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_BINARY_DIR} xxd -i graph_kernel.hsaco kernel_embed.cpp
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
+    COMMENT "Embedding .hsaco into binary with clean variable name"
 )
+add_library(kernel_embed STATIC ${CMAKE_CURRENT_BINARY_DIR}/kernel_embed.cpp)
 
 add_executable(${EXE_NAME} main.cpp)
 
-add_custom_command(TARGET ${EXE_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
-            $<TARGET_FILE_DIR:${EXE_NAME}>/graph_kernel.hsaco
-    COMMENT "Copying .hsaco file to executable directory"
-)
-
-add_dependencies(${EXE_NAME} graph_kernel_hsaco)
+add_dependencies(${EXE_NAME} graph_kernel_hsaco kernel_embed)
 
 target_link_libraries(${EXE_NAME} PRIVATE
     eio
     uring
     hipster
     kernel_lib
+    kernel_embed
 )
 
 set_target_properties(${EXE_NAME} PROPERTIES 

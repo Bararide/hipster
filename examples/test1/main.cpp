@@ -1,10 +1,3 @@
-#include <chrono>
-#include <fstream> // Для std::ifstream
-#include <iomanip>
-#include <iostream> // Для std::cerr
-#include <random>
-#include <vector>
-
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
@@ -13,6 +6,7 @@
 #include <hsa/hsa_ext_amd.h>
 
 #include <hipster.hpp>
+#include <modules/module_kernel.hpp>
 #include <unifired/agent_cpu.hpp>
 #include <unifired/agent_gpu.hpp>
 #include <unifired/async_dma_transfer.hpp>
@@ -27,44 +21,10 @@ extern "C" __global__ void graph_weight_sum_kernel(const uint32_t *row_ptr,
                                                    float *out_sums,
                                                    uint32_t num_vertices);
 
+extern const unsigned char graph_kernel_hsaco[];
+extern unsigned int graph_kernel_hsaco_len;
+
 using namespace hipster;
-
-class HipModuleKernel {
-public:
-  hipModule_t module = nullptr;
-  hipFunction_t function = nullptr;
-
-  bool load(const std::string &hsaco_path, const std::string &kernel_name) {
-    std::ifstream file(hsaco_path, std::ios::binary | std::ios::ate);
-    if (!file) {
-      std::cerr << "[Warning] Cannot open .hsaco file: " << hsaco_path << "\n";
-      return false;
-    }
-
-    size_t size = file.tellg();
-    file.seekg(0);
-    std::vector<char> hsaco_data(size);
-    file.read(hsaco_data.data(), size);
-
-    hipError_t err = hipModuleLoadData(&module, hsaco_data.data());
-    if (err != hipSuccess)
-      return false;
-
-    err = hipModuleGetFunction(&function, module, kernel_name.c_str());
-    return err == hipSuccess;
-  }
-
-  void launch(dim3 grid, dim3 block, size_t shared, hipStream_t stream,
-              void **args) {
-    (void)hipModuleLaunchKernel(function, grid.x, grid.y, grid.z, block.x, block.y,
-                          block.z, shared, stream, args, nullptr);
-  }
-
-  ~HipModuleKernel() {
-    if (module)
-      (void)hipModuleUnload(module);
-  }
-};
 
 int main() {
   auto logger = spdlog::stdout_color_mt("hipster_test");
@@ -91,8 +51,8 @@ int main() {
     Hipster hip;
     logger->info("[Hipster] Initialization: {}", hip.getDeviceName());
 
-    constexpr uint32_t NUM_VERTICES = 100000;
-    constexpr uint32_t NUM_EDGES = 500000;
+    constexpr uint32_t NUM_VERTICES = 10000;
+    constexpr uint32_t NUM_EDGES = 300000;
 
     size_t row_ptr_size = (NUM_VERTICES + 1) * sizeof(uint32_t);
     size_t col_idx_size = NUM_EDGES * sizeof(uint32_t);
@@ -141,7 +101,6 @@ int main() {
     HipStream stream = hip.createStream();
     LaunchConfig config = hip.getOptimalLaunchConfig(NUM_VERTICES);
 
-    // Указатели для передачи в ядро
     const uint32_t *d_row_ptr =
         static_cast<const uint32_t *>(transfer.buffer().cpu()) +
         (offset_row_ptr / sizeof(uint32_t));
@@ -168,8 +127,9 @@ int main() {
     }
 
     {
-      HipModuleKernel mod_kernel;
-      if (mod_kernel.load("graph_kernel.hsaco", "graph_weight_sum_kernel")) {
+      HipModuleKernel mod_kernel(graph_kernel_hsaco, graph_kernel_hsaco_len,
+                                 "graph_weight_sum_kernel");
+      if (mod_kernel.isValid()) {
         void *args[] = {const_cast<uint32_t **>(&d_row_ptr),
                         const_cast<uint32_t **>(&d_col_idx),
                         const_cast<float **>(&d_weights), &d_out_sums,
