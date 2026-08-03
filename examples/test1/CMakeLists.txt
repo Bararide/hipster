@@ -3,56 +3,34 @@ project(hipster_test LANGUAGES CXX)
 
 set(EXE_NAME test1)
 
-find_program(HIPCC_EXECUTABLE hipcc)
-if(NOT HIPCC_EXECUTABLE)
-    message(FATAL_ERROR "hipcc not found")
-endif()
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(cmake/hipEmbed.cmake)
+include(cmake/hipLaunch.cmake)
+include(cmake/hipSetup.cmake)
+include(cmake/projectOptions.cmake)
 
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel.o
-    COMMAND ${HIPCC_EXECUTABLE} -c -std=c++26 -fPIC ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp -o ${CMAKE_CURRENT_BINARY_DIR}/kernel.o
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
-    COMMENT "Compiling HIP kernel with hipcc"
-)
-add_library(kernel_lib STATIC ${CMAKE_CURRENT_BINARY_DIR}/kernel.o)
-set_target_properties(kernel_lib PROPERTIES LINKER_LANGUAGE CXX)
+setup_hip_environment()
+ensure_rocm_available()
 
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
-    COMMAND ${HIPCC_EXECUTABLE} --genco --offload-arch=gfx1103 -O3 
-            -o ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
-            ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
-    COMMENT "Compiling HIP kernel to .hsaco"
-    VERBATIM
+add_hip_kernel(test_kernel 
+    ${CMAKE_CURRENT_SOURCE_DIR}/kernel.hip.cpp
+    HSACO_NAME graph_kernel
+    EMBED_NAME kernel_embed
+    ARCH gfx1103
 )
-add_custom_target(graph_kernel_hsaco ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco)
-
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel_embed.cpp
-    COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_BINARY_DIR} xxd -i graph_kernel.hsaco kernel_embed.cpp
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/graph_kernel.hsaco
-    COMMENT "Embedding .hsaco into binary with clean variable name"
-)
-add_library(kernel_embed STATIC ${CMAKE_CURRENT_BINARY_DIR}/kernel_embed.cpp)
 
 add_executable(${EXE_NAME} main.cpp)
 
-add_dependencies(${EXE_NAME} graph_kernel_hsaco kernel_embed)
+set_project_options(${EXE_NAME})
+add_project_includes(${EXE_NAME})
+add_hip_definitions(${EXE_NAME})
 
 target_link_libraries(${EXE_NAME} PRIVATE
     eio
     uring
     hipster
-    kernel_lib
+    test_kernel_obj
     kernel_embed
 )
 
-set_target_properties(${EXE_NAME} PROPERTIES 
-    CXX_STANDARD 26 
-    CXX_STANDARD_REQUIRED ON
-)
-
-target_compile_definitions(${EXE_NAME} PRIVATE 
-    __HIP_PLATFORM_AMD__
-)
+add_dependencies(${EXE_NAME} graph_kernel)
