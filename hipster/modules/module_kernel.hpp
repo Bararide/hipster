@@ -18,8 +18,7 @@ public:
 
   HipModuleKernel() = delete;
 
-  HipModuleKernel(const unsigned char *data, size_t size,
-                  const std::string &kernel_name) {
+  HipModuleKernel(const unsigned char *data, const std::string &kernel_name) {
     hipError_t err = hipModuleLoadData(&module, data);
     if (err != hipSuccess) {
       throw std::runtime_error("hipModuleLoadData failed: " +

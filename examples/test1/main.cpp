@@ -127,8 +127,7 @@ int main() {
     }
 
     {
-      HipModuleKernel mod_kernel(graph_kernel_hsaco, graph_kernel_hsaco_len,
-                                 "graph_weight_sum_kernel");
+      HipModuleKernel mod_kernel(graph_kernel_hsaco, "graph_weight_sum_kernel");
       if (mod_kernel.isValid()) {
         void *args[] = {const_cast<uint32_t **>(&d_row_ptr),
                         const_cast<uint32_t **>(&d_col_idx),
