@@ -50,6 +50,16 @@ inline void checkLastHipError(const char *label) {
   }
 }
 
+template <typename T>
+static inline const T *convert(const void *data_ptr, const uint32_t offset) {
+  return static_cast<const T *>(data_ptr) + (offset / sizeof(T));
+}
+
+template <typename T>
+static inline T *convert(void *data_ptr, const uint32_t offset) {
+  return static_cast<T *>(data_ptr) + (offset / sizeof(T));
+}
+
 } // namespace hipster
 
 #endif // HIPSTER_UTILS_HPP

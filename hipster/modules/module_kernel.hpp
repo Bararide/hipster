@@ -60,17 +60,20 @@ public:
     return module != nullptr && function != nullptr;
   }
 
+  template <typename... Args>
   void launch(dim3 grid, dim3 block, size_t shared, hipStream_t stream,
-              void **args) {
+              Args... args) {
     if (!isValid()) {
       spdlog::critical(
           "Cannot launch: HipModuleKernel is invalid (null function)");
       return;
     }
 
-    hipError_t err =
-        hipModuleLaunchKernel(function, grid.x, grid.y, grid.z, block.x,
-                              block.y, block.z, shared, stream, args, nullptr);
+    void *kernel_args[] = {(void *)&args...};
+
+    hipError_t err = hipModuleLaunchKernel(function, grid.x, grid.y, grid.z,
+                                           block.x, block.y, block.z, shared,
+                                           stream, kernel_args, nullptr);
     if (err != hipSuccess) {
       spdlog::critical("Fail in hip module launch kernel: {}",
                        hipGetErrorString(err));

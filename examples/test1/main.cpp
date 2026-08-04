@@ -89,6 +89,7 @@ int main() {
         }
       }
     }
+
     h_row_ptr[NUM_VERTICES] = current_edge;
 
     transfer.buffer().write(offset_row_ptr, h_row_ptr.data(), h_row_ptr.size());
@@ -101,42 +102,33 @@ int main() {
     HipStream stream = hip.createStream();
     LaunchConfig config = hip.getOptimalLaunchConfig(NUM_VERTICES);
 
-    const uint32_t *d_row_ptr =
-        static_cast<const uint32_t *>(transfer.buffer().cpu()) +
-        (offset_row_ptr / sizeof(uint32_t));
-    const uint32_t *d_col_idx =
-        static_cast<const uint32_t *>(transfer.buffer().cpu()) +
-        (offset_col_idx / sizeof(uint32_t));
-    const float *d_weights =
-        static_cast<const float *>(transfer.buffer().cpu()) +
-        (offset_weights / sizeof(float));
-    float *d_out_sums = static_cast<float *>(transfer.buffer().cpu()) +
-                        (offset_out_sums / sizeof(float));
+    auto cpu_ptr = transfer.buffer().cpu();
+
+    const uint32_t *d_row_ptr = convert<uint32_t>(cpu_ptr, offset_row_ptr);
+    const uint32_t *d_col_idx = convert<uint32_t>(cpu_ptr, offset_col_idx);
+    const float *d_weights = convert<float>(cpu_ptr, offset_weights);
+    float *d_out_sums = convert<float>(cpu_ptr, offset_out_sums);
 
     logger->info("\n--- Launching Kernels ---");
 
-    {
-      auto start = std::chrono::high_resolution_clock::now();
-      hip.launchKernel(graph_weight_sum_kernel, config, stream, d_row_ptr,
-                       d_col_idx, d_weights, d_out_sums, NUM_VERTICES);
-      hip.synchronize(stream);
-      auto end = std::chrono::high_resolution_clock::now();
-      double ms =
-          std::chrono::duration<double, std::milli>(end - start).count();
-      logger->info("[Level 1] HIP Launch (Hipster): {:.4f} ms", ms);
-    }
+    // {
+    //   auto start = std::chrono::high_resolution_clock::now();
+    //   hip.launchKernel(graph_weight_sum_kernel, config, stream, d_row_ptr,
+    //                    d_col_idx, d_weights, d_out_sums, NUM_VERTICES);
+    //   hip.synchronize(stream);
+    //   auto end = std::chrono::high_resolution_clock::now();
+    //   double ms =
+    //       std::chrono::duration<double, std::milli>(end - start).count();
+    //   logger->info("[Level 1] HIP Launch (Hipster): {:.4f} ms", ms);
+    // }
 
     {
       HipModuleKernel mod_kernel(graph_kernel_hsaco, "graph_weight_sum_kernel");
       if (mod_kernel.isValid()) {
-        void *args[] = {const_cast<uint32_t **>(&d_row_ptr),
-                        const_cast<uint32_t **>(&d_col_idx),
-                        const_cast<float **>(&d_weights), &d_out_sums,
-                        const_cast<uint32_t *>(&NUM_VERTICES)};
-
         auto start = std::chrono::high_resolution_clock::now();
         mod_kernel.launch(config.grid_dim, config.block_dim, 0, stream.get(),
-                          args);
+                          d_row_ptr, d_col_idx, d_weights, d_out_sums,
+                          NUM_VERTICES);
         hip.synchronize(stream);
         auto end = std::chrono::high_resolution_clock::now();
         double ms =
