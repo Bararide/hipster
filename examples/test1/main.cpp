@@ -111,17 +111,6 @@ int main() {
 
     logger->info("\n--- Launching Kernels ---");
 
-    // {
-    //   auto start = std::chrono::high_resolution_clock::now();
-    //   hip.launchKernel(graph_weight_sum_kernel, config, stream, d_row_ptr,
-    //                    d_col_idx, d_weights, d_out_sums, NUM_VERTICES);
-    //   hip.synchronize(stream);
-    //   auto end = std::chrono::high_resolution_clock::now();
-    //   double ms =
-    //       std::chrono::duration<double, std::milli>(end - start).count();
-    //   logger->info("[Level 1] HIP Launch (Hipster): {:.4f} ms", ms);
-    // }
-
     {
       HipModuleKernel mod_kernel(graph_kernel_hsaco, "graph_weight_sum_kernel");
       if (mod_kernel.isValid()) {
