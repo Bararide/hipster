@@ -12,6 +12,7 @@
 #include <unifired/async_dma_transfer.hpp>
 #include <unifired/dma_buffer.hpp>
 #include <unifired/fine_grained_pool.hpp>
+#include <unifired/pool_allocator.hpp>
 #include <unifired/pool_cpu.hpp>
 #include <unifired/pool_gpu.hpp>
 
@@ -36,119 +37,84 @@ int main() {
     CpuAgent cpu_agent;
     logger->info("CPU: {}", cpu_agent.name());
 
-    GpuAgent gpu_agent;
-    logger->info("GPU: {}", gpu_agent.name());
-
-    logger->info("\n=== 2. Memory Pools ===");
-    GpuPool gpu_pool(gpu_agent);
-    logger->info("GPU Pool Size: {} MB", gpu_pool.size() / (1024 * 1024));
-
-    GpuFineGrainedPool fine_grained_pool(gpu_agent);
-    logger->info("Fine-grained memory supported: {}",
-                 fine_grained_pool.isFineGrained() ? "yes" : "no");
-
-    logger->info("\n=== 3. Graph Processing & Cache Optimization Test ===");
+    logger->info("\n=== 3. Graph Processing & PMR Zero-Copy Test ===");
     Hipster hip;
     logger->info("[Hipster] Initialization: {}", hip.getDeviceName());
 
     constexpr uint32_t NUM_VERTICES = 10000;
     constexpr uint32_t NUM_EDGES = 300000;
 
-    size_t row_ptr_size = (NUM_VERTICES + 1) * sizeof(uint32_t);
-    size_t col_idx_size = NUM_EDGES * sizeof(uint32_t);
-    size_t weights_size = NUM_EDGES * sizeof(float);
-    size_t out_sums_size = NUM_VERTICES * sizeof(float);
-    size_t total_graph_size =
-        row_ptr_size + col_idx_size + weights_size + out_sums_size;
+    HsaPmrResource<PoolType::GLOBAL, GlobalMemoryProperty::ANY> pmr_resource(
+        GpuAgent{}.agent());
+    logger->info("PMR Resource created. Max alloc: {} MB",
+                 pmr_resource.allocMaxSize() / (1024 * 1024));
 
-    AsyncDmaTransferAuto transfer(gpu_agent, gpu_pool);
-    if (!transfer.prepare(total_graph_size, "graph-csr-buffer")) {
-      logger->error("Failed to prepare AsyncDmaTransfer");
-      return 1;
-    }
-    logger->info("Zero-Copy buffer: {} bytes ({} MB)", total_graph_size,
-                 total_graph_size / (1024 * 1024));
+    std::pmr::polymorphic_allocator<uint32_t> alloc_u32(&pmr_resource);
+    std::pmr::polymorphic_allocator<float> alloc_f32(&pmr_resource);
 
-    size_t offset_row_ptr = 0;
-    size_t offset_col_idx = offset_row_ptr + row_ptr_size;
-    size_t offset_weights = offset_col_idx + col_idx_size;
-    size_t offset_out_sums = offset_weights + weights_size;
+    std::pmr::vector<uint32_t> d_row_ptr(NUM_VERTICES + 1, 0, alloc_u32);
+    std::pmr::vector<uint32_t> d_col_idx(NUM_EDGES, 0, alloc_u32);
+    std::pmr::vector<float> d_weights(NUM_EDGES, 1.5f, alloc_f32);
+    std::pmr::vector<float> d_out_sums(NUM_VERTICES, 0.0f, alloc_f32);
 
-    std::vector<uint32_t> h_row_ptr(NUM_VERTICES + 1, 0);
-    std::vector<uint32_t> h_col_idx(NUM_EDGES, 0);
-    std::vector<float> h_weights(NUM_EDGES, 1.5f);
+    logger->info("PMR Vectors allocated directly in HSA Fine-Grained memory.");
 
+    logger->info("CPU populating graph data directly in device memory...");
     uint32_t current_edge = 0;
     for (uint32_t v = 0; v < NUM_VERTICES; ++v) {
-      h_row_ptr[v] = current_edge;
+      d_row_ptr[v] = current_edge;
       uint32_t degree = 1 + (v % 10);
       for (uint32_t d = 0; d < degree; ++d) {
         if (current_edge < NUM_EDGES) {
-          h_col_idx[current_edge] = (v + d) % NUM_VERTICES;
+          d_col_idx[current_edge] = (v + d) % NUM_VERTICES;
+          d_weights[current_edge] = 1.5f;
           current_edge++;
         }
       }
     }
-
-    h_row_ptr[NUM_VERTICES] = current_edge;
-
-    transfer.buffer().write(offset_row_ptr, h_row_ptr.data(), h_row_ptr.size());
-    transfer.buffer().write(offset_col_idx, h_col_idx.data(), h_col_idx.size());
-    transfer.buffer().write(offset_weights, h_weights.data(), h_weights.size());
-
-    transfer.flushDirtyRange();
-    logger->info("Dirty range flushed. Data sync with RAM.");
+    d_row_ptr[NUM_VERTICES] = current_edge;
 
     HipStream stream = hip.createStream();
     LaunchConfig config = hip.getOptimalLaunchConfig(NUM_VERTICES);
-
-    auto cpu_ptr = transfer.buffer().cpu();
-
-    const uint32_t *d_row_ptr = convert<uint32_t>(cpu_ptr, offset_row_ptr);
-    const uint32_t *d_col_idx = convert<uint32_t>(cpu_ptr, offset_col_idx);
-    const float *d_weights = convert<float>(cpu_ptr, offset_weights);
-    float *d_out_sums = convert<float>(cpu_ptr, offset_out_sums);
 
     logger->info("\n--- Launching Kernels ---");
 
     {
       HipModuleKernel mod_kernel(graph_kernel_hsaco, "graph_weight_sum_kernel");
       if (mod_kernel.isValid()) {
+
         auto start = std::chrono::high_resolution_clock::now();
         mod_kernel.launch(config.grid_dim, config.block_dim, 0, stream.get(),
-                          d_row_ptr, d_col_idx, d_weights, d_out_sums,
-                          NUM_VERTICES);
+                          d_row_ptr.data(), d_col_idx.data(), d_weights.data(),
+                          d_out_sums.data(), NUM_VERTICES);
         hip.synchronize(stream);
         auto end = std::chrono::high_resolution_clock::now();
+
         double ms =
             std::chrono::duration<double, std::milli>(end - start).count();
-        logger->info("[Level 2] HIP Module API: {:.4f} ms", ms);
+        logger->info("[Level 2] HIP Module API (PMR Data): {:.4f} ms", ms);
       } else {
         logger->warn("[Level 2] Skipped (graph_kernel.hsaco not found)");
       }
     }
 
     logger->info("\n--- Validating Results ---");
-    std::vector<float> h_out_sums(NUM_VERTICES, 0.0f);
-    transfer.buffer().read(offset_out_sums, h_out_sums.data(),
-                           h_out_sums.size());
-
     bool success = true;
     for (uint32_t v = 0; v < std::min(NUM_VERTICES, 10u); ++v) {
-      uint32_t degree = h_row_ptr[v + 1] - h_row_ptr[v];
+      uint32_t degree = d_row_ptr[v + 1] - d_row_ptr[v];
       float expected_sum = degree * 1.5f;
-      if (std::abs(h_out_sums[v] - expected_sum) > 0.01f) {
+      if (std::abs(d_out_sums[v] - expected_sum) > 0.01f) {
         success = false;
         logger->error(
             "Validation failed at vertex {}: expected {:.2f}, got {:.2f}", v,
-            expected_sum, h_out_sums[v]);
+            expected_sum, d_out_sums[v]);
         break;
       }
     }
 
     if (success) {
-      logger->info("SUCCESS: Graph processed correctly. Zero-Copy and "
-                   "kernel execution validated.");
+      logger->info(
+          "SUCCESS: Graph processed correctly using std::pmr Zero-Copy!");
     }
 
   } catch (const std::exception &e) {

@@ -22,6 +22,7 @@ template <typename Derived, PoolType PoolT,
           GlobalMemoryProperty PropertyT = GlobalMemoryProperty::ANY>
 class PoolBase {
 public:
+  using memory_pools_t = std::vector<hsa_amd_memory_pool_t>;
   ~PoolBase() = default;
 
   hsa_amd_memory_pool_t pool() const noexcept { return pool_; }
@@ -83,8 +84,9 @@ public:
 
 protected:
   explicit PoolBase(hsa_agent_t agent) {
+
     struct Context {
-      std::vector<hsa_amd_memory_pool_t> pools;
+      memory_pools_t pools;
       GlobalMemoryProperty required_property;
     } context;
 
