@@ -57,8 +57,6 @@ int main() {
     std::pmr::vector<float> d_weights(NUM_EDGES, 1.5f, alloc_f32);
     std::pmr::vector<float> d_out_sums(NUM_VERTICES, 0.0f, alloc_f32);
 
-    logger->info("PMR Vectors allocated directly in HSA Fine-Grained memory.");
-
     logger->info("CPU populating graph data directly in device memory...");
     uint32_t current_edge = 0;
     for (uint32_t v = 0; v < NUM_VERTICES; ++v) {
