@@ -27,6 +27,7 @@ extern unsigned int graph_kernel_hsaco_len;
 
 using namespace hipster;
 
+
 int main() {
   auto logger = spdlog::stdout_color_mt("hipster_test");
   logger->set_level(spdlog::level::info);
